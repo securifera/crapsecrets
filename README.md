@@ -32,7 +32,7 @@ python3 ./crapsecrets/examples/cli.py -mrd 5 -avsk -fvsp -mkf ./local/aspnet_mac
 - Request timeout can be set using the `--timeout` or `-t` argument
 
 ## Viewstate Changes:
-- Contains more machine keys and some logical changes.
+- Contains some logical changes.
 - Shows a possibility for AES and 3DES for validation key in encrypted .NET 4.0 viewstates.
 - Removes cookieless values from the path.
 - Removes parameters after .aspx.
