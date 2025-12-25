@@ -116,14 +116,24 @@ class CrapsecretsBase:
     def load_resources(self, resource_list, is_custom=False):
         filepaths = []
         if self.custom_resource:
-            filepaths.append(self.custom_resource)
+            # Convert custom resource to absolute path
+            filepaths.append(os.path.abspath(self.custom_resource))
         if is_custom:
             for r in resource_list:
-                filepaths.append(r)
+                # Convert custom resource list items to absolute paths
+                filepaths.append(os.path.abspath(r))
         else:
+            # Get the absolute directory path of this base.py file
+            base_dir = os.path.dirname(os.path.realpath(__file__))
             for r in resource_list:
-                filepaths.append(f"{os.path.dirname(os.path.abspath(__file__))}/resources/{r}")
+                # Construct absolute path to resource file
+                resource_path = os.path.abspath(os.path.join(base_dir, "resources", r))
+                filepaths.append(resource_path)
         for filepath in filepaths:
+            if not os.path.exists(filepath):
+                raise crapsecrets.errors.LoadResourceException(
+                    f"Resource file not found: {filepath}"
+                )
             with open(filepath, encoding="utf-8") as r:
                 for l in r.readlines():
                     if len(l) > 0:

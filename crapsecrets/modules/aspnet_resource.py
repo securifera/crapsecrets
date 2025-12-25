@@ -75,7 +75,7 @@ class ASPNET_Resource(CrapsecretsBase):
             if commandargs.findviewstatepage:
                 self.find_viewstate_page = True
 
-        self.machinekeyfile = ["./crapsecrets/resources/aspnet_machinekeys.txt"]
+        self.machinekeyfile = ["aspnet_machinekeys.txt"]
         if commandargs:
             if commandargs.machinekeyfile:
                 self.machinekeyfile = self.commandargs.machinekeyfile
@@ -242,7 +242,7 @@ class ASPNET_Resource(CrapsecretsBase):
         results = []      
 
         # Get lines from the file(s) using your load_resources function
-        lines = self.load_resources(self.machinekeyfile, True)
+        lines = self.load_resources(self.machinekeyfile, False)
 
         # Use a set to store unique lines after stripping and filtering
         unique_lines = set()
@@ -282,10 +282,11 @@ class ASPNET_Resource(CrapsecretsBase):
             validation_keys = self.validation_keys
             decryption_keys = self.decryption_keys  
 
-        if len(validation_keys) == 0:
-            print("No keys found in the resource file(s) for the ViewState module! Checks will be incomplete.")
-        else:
-            print(f"Found {len(validation_keys)} keys in the resource file(s) for the ViewState module.")
+        if self.is_debug:
+            if len(validation_keys) == 0:
+                print("No keys found in the resource file(s) for the ViewState module! Checks will be incomplete.")
+            else:
+                print(f"Found {len(validation_keys)} keys in the resource file(s) for the ViewState module.")
         
         validation_algo = None
         

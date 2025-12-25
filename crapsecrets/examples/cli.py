@@ -14,6 +14,7 @@ import re
 import toml
 import ssl
 import time
+import json
 from urllib.parse import urljoin, urlparse
 
 # Suppress SSL verification warnings in httpx
@@ -63,6 +64,17 @@ class BaseReport:
     def __init__(self, x):
         self.x = x
 
+    def to_dict(self):
+        """Convert report to dictionary for JSON output"""
+        return {
+            'detecting_module': self.x['detecting_module'],
+            'product_type': self.x['description']['product'],
+            'product': self.x['product'],
+            'secret_type': self.x['description']['secret'],
+            'location': self.x['location'],
+            'type': self.x['type']
+        }
+
     def print_report(self, report_message):
         print(report_message)
         print(f"Detecting Module: {self.x['detecting_module']}\n")
@@ -73,6 +85,16 @@ class BaseReport:
 
 
 class ReportSecret(BaseReport):
+    def to_dict(self):
+        """Convert secret report to dictionary for JSON output"""
+        base_dict = super().to_dict()
+        base_dict.update({
+            'secret': self.x['secret'],
+            'severity': self.x['description']['severity'],
+            'details': self.x['details']
+        })
+        return base_dict
+
     def report(self):
         self.print_report(print_status("Known Secret Found!\n", color="green", passthru=True))
         print_status(f"Secret: {self.x['secret']}", color="green")
@@ -88,6 +110,13 @@ class ReportSecret(BaseReport):
 
 
 class ReportIdentify(BaseReport):
+    def to_dict(self):
+        """Convert identify report to dictionary for JSON output"""
+        base_dict = super().to_dict()
+        if self.x.get("hashcat") is not None:
+            base_dict['hashcat'] = self.x['hashcat']
+        return base_dict
+
     def report(self):
         self.print_report(
             print_status("Cryptographic Product Identified (no vulnerability)\n", color="yellow", passthru=True)
@@ -132,28 +161,36 @@ def print_hashcat_results(hashcat_candidates):
 def main():
     global colorenabled, client_kwargs
     colorenabled = False
-    color_parser = argparse.ArgumentParser(add_help=False)
+    base_parser = argparse.ArgumentParser(add_help=False)
 
-    color_parser.add_argument(
+    base_parser.add_argument(
         "-nc",
         "--no-color",
         action="store_true",
         help="Disable color message in the console",
     )
 
-    args, unknown_args = color_parser.parse_known_args()
+    base_parser.add_argument(
+        "-j",
+        "--json",
+        action="store_true",
+        help="Output results in JSON format",
+    )
+
+    args, unknown_args = base_parser.parse_known_args()
     colorenabled = not args.no_color
 
     parser = CustomArgumentParser(
-        description="Check cryptographic products against crapsecrets library", parents=[color_parser]
+        description="Check cryptographic products against crapsecrets library", parents=[base_parser]
     )
 
-    if colorenabled:
-        print_status(ascii_art_banner, color="green")
-
-    else:
-        print(ascii_art_banner)
-    print_version()
+    json_output = args.json
+    if json_output is False:
+        if colorenabled:
+            print_status(ascii_art_banner, color="green")
+        else:
+            print(ascii_art_banner)
+        print_version()
 
     parser.add_argument(
         "-u",
@@ -420,38 +457,72 @@ def main():
         if proxy:
             client_kwargs["proxy"] = proxy
         
-
-        print_status(f"Target: {args.url}", color="yellow")
+        if json_output is False:
+            print_status(f"Target: {args.url}", color="yellow")
 
         client = httpx.Client(**client_kwargs)
 
         result_list = send_requests(args.url, args.timeout, allow_auto_redirects, max_redirect_depth, custom_resource, client, args)
         
         if result_list:
-            for r in result_list:
-                if r["type"] == "SecretFound":
-                    report = ReportSecret(r)
-                else:
-                    if not args.no_hashcat and r["product"]:
-                        hashcat_candidates = hashcat_all_modules(r["product"], detecting_module=r["detecting_module"])
-                        if hashcat_candidates:
-                            r["hashcat"] = hashcat_candidates
-                    report = ReportIdentify(r)
-                report.report()
+            if json_output:
+                # JSON output mode
+                json_results = {"target": args.url, "results": []}
+                results = []
+                for r in result_list:
+                    if r["type"] == "SecretFound":
+                        report = ReportSecret(r)
+                    else:
+                        if not args.no_hashcat and r["product"]:
+                            hashcat_candidates = hashcat_all_modules(r["product"], detecting_module=r["detecting_module"])
+                            if hashcat_candidates:
+                                r["hashcat"] = hashcat_candidates
+                        report = ReportIdentify(r)
+                    results.append(report.to_dict())
+                json_results["results"] = results
+                print(json.dumps(json_results, indent=2))
+            else:
+                # Normal text output mode
+                for r in result_list:
+                    if r["type"] == "SecretFound":
+                        report = ReportSecret(r)
+                    else:
+                        if not args.no_hashcat and r["product"]:
+                            hashcat_candidates = hashcat_all_modules(r["product"], detecting_module=r["detecting_module"])
+                            if hashcat_candidates:
+                                r["hashcat"] = hashcat_candidates
+                        report = ReportIdentify(r)
+                    report.report()
         else:
-            print_status("No secrets found :(", color="red")
+            if json_output:
+                json_results = {"target": args.url, "results": []}
+                print(json.dumps(json_results, indent=2))
+            else:
+                print_status("No secrets found :(", color="red")
 
     else:
         x = check_all_modules(*args.product, custom_resource=custom_resource)
         if x:
             report = ReportSecret(x)
-            report.report()
+            if json_output:
+                print(json.dumps([report.to_dict()], indent=2))
+            else:
+                report.report()
         else:
-            print_status("No secrets found :(", color="red")
-            if not args.no_hashcat:
-                hashcat_candidates = hashcat_all_modules(*args.product)
-                if hashcat_candidates:
-                    print_hashcat_results(hashcat_candidates)
+            if json_output:
+                # Output empty array or include hashcat info if available
+                result = []
+                if not args.no_hashcat:
+                    hashcat_candidates = hashcat_all_modules(*args.product)
+                    if hashcat_candidates:
+                        result = [{'hashcat': hashcat_candidates}]
+                print(json.dumps(result, indent=2))
+            else:
+                print_status("No secrets found :(", color="red")
+                if not args.no_hashcat:
+                    hashcat_candidates = hashcat_all_modules(*args.product)
+                    if hashcat_candidates:
+                        print_hashcat_results(hashcat_candidates)
 
 def parse_headers(header_list):
     headers = {}
